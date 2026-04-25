@@ -10,7 +10,7 @@ const isDev = import.meta.env.DEV;
 /** OpenReel cloud services */
 export const OPENREEL_CLOUD_URL = isDev
   ? "http://localhost:8787"
-  : (import.meta.env.VITE_PUBLIC_CLOUD_URL as string | undefined) ?? "";
+  : (import.meta.env.VITE_PUBLIC_CLOUD_URL ?? "");
 
 /** OpenReel transcription / TTS service */
 export const OPENREEL_TTS_URL = "https://transcribe.openreel.video";
