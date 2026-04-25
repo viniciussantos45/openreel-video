@@ -854,6 +854,8 @@ export class ProjectStore {
         stroke: { color: "#1d4ed8", width: 2, opacity: 1 },
       };
       const transform = createDefaultTransform();
+      const mergedFill = { ...defaultStyle.fill, ...style?.fill };
+      const mergedStroke = { ...defaultStyle.stroke, ...style?.stroke };
       const shapeClip: ShapeClip = {
         id: clipId,
         trackId,
@@ -861,7 +863,7 @@ export class ProjectStore {
         duration,
         type: "shape",
         shapeType,
-        style: { fill: { ...defaultStyle.fill, ...style?.fill }, stroke: { ...defaultStyle.stroke, ...style?.stroke } },
+        style: { fill: mergedFill, stroke: mergedStroke },
         transform,
         keyframes: [],
       };
