@@ -114,9 +114,17 @@ export class FFmpegFallback {
       this.ffmpeg = new FFmpeg() as unknown as FFmpegInstance;
 
       const useMultiThread = typeof crossOriginIsolated !== "undefined" && crossOriginIsolated;
-      const baseURL = useMultiThread
+      const defaultBaseURL = useMultiThread
         ? "https://unpkg.com/@ffmpeg/core-mt@0.12.6/dist/esm"
         : "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm";
+      // Allow overriding the CDN base URL via environment variable so the app
+      // can be run with self-hosted WASM files instead of loading from a CDN.
+      // Example: VITE_FFMPEG_CORE_BASE_URL=/ffmpeg-core
+      const baseURL =
+        (typeof import.meta !== "undefined" &&
+          (import.meta as { env?: Record<string, string> }).env
+            ?.VITE_FFMPEG_CORE_BASE_URL) ||
+        defaultBaseURL;
 
       if (useMultiThread) {
         const [coreURL, wasmURL, workerURL] = await Promise.all([
