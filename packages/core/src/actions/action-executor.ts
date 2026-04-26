@@ -183,6 +183,10 @@ export class ActionExecutor {
     return this.history;
   }
 
+  getLastAddedId(type: string): string | undefined {
+    return this.lastAddedIds.get(type);
+  }
+
   private resolveSpecialMarkers(action: Action): Action {
     const params = { ...action.params } as Record<string, unknown>;
 

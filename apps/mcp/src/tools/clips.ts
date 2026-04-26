@@ -122,8 +122,8 @@ export function registerClipTools(server: McpServer): void {
       time: z.number().min(0).describe("Timeline time in seconds where the split should occur"),
     },
     async ({ clipId, time }) =>
-      run(() => {
-        const secondClip = store.splitClip(clipId, time);
+      run(async () => {
+        const secondClip = await store.splitClip(clipId, time);
         return { split: true, firstClipId: clipId, secondClipId: secondClip.id, splitTime: time };
       }),
   );
@@ -135,8 +135,8 @@ export function registerClipTools(server: McpServer): void {
       clipId: z.string().describe("ID of the clip to ripple-delete"),
     },
     async ({ clipId }) =>
-      run(() => {
-        store.rippleDelete(clipId);
+      run(async () => {
+        await store.rippleDelete(clipId);
         return { deleted: true, clipId };
       }),
   );

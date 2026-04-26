@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx src/server.ts",
     "start": "node dist/server.js",
-    "build": "tsc",
+    "build": "esbuild src/server.ts --bundle --platform=node --format=esm --outfile=dist/server.js",
     "typecheck": "tsc --noEmit"
   },
   "bin": {
@@ -15,11 +15,13 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@openreel/core": "workspace:*",
     "immer": "^11.1.4",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^20.19.39",
+    "esbuild": "^0.28.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }

@@ -64,9 +64,9 @@ export function registerProjectTools(server: McpServer): void {
 
   server.tool(
     "load_project",
-    "Load a .openreel project file from disk into memory. This replaces the current in-memory project.",
+    "Load a .oreel project file from disk into memory. This replaces the current in-memory project.",
     {
-      filePath: z.string().describe("Absolute path to the .openreel JSON file"),
+      filePath: z.string().describe("Absolute path to the .oreel JSON file"),
     },
     async ({ filePath }) =>
       run(async () => {
@@ -86,7 +86,7 @@ export function registerProjectTools(server: McpServer): void {
 
   server.tool(
     "save_project",
-    "Save the current in-memory project to a .openreel JSON file on disk.",
+    "Save the current in-memory project to a .oreel JSON file on disk.",
     {
       filePath: z
         .string()

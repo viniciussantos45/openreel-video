@@ -1,4 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { FontWeight } from "../types.js";
 import { z } from "zod";
 import { store } from "../project-store.js";
 import { run } from "../utils/response.js";
@@ -31,7 +32,8 @@ const textStyleSchema = z
     fontSize: z.number().positive().optional(),
     fontWeight: z
       .union([
-        z.enum(["100", "200", "300", "400", "500", "600", "700", "800", "900"]).transform(Number),
+        z.enum(["100", "200", "300", "400", "500", "600", "700", "800", "900"])
+          .transform((v) => parseInt(v, 10) as Extract<FontWeight, number>),
         z.enum(["normal", "bold"]),
       ])
       .optional(),

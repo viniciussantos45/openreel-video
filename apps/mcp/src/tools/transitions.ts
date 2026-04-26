@@ -52,8 +52,8 @@ export function registerTransitionTools(server: McpServer): void {
       duration: z.number().positive().describe("Transition duration in seconds"),
     },
     async ({ clipAId, clipBId, transitionType, duration }) =>
-      run(() => {
-        const transitionId = store.addTransition(clipAId, clipBId, transitionType as TransitionType, duration);
+      run(async () => {
+        const transitionId = await store.addTransition(clipAId, clipBId, transitionType as TransitionType, duration);
         return { transitionId, clipAId, clipBId, transitionType, duration };
       }),
   );

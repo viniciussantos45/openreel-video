@@ -1,11 +1,12 @@
 /**
  * In-memory project store for the OpenReel MCP server.
- * Loads/saves projects as JSON files (.openreel).
+ * Loads/saves projects as JSON files (.oreel).
  */
 
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import { produce } from "immer";
+import { ActionExecutor } from "@openreel/core/node";
 import type {
   Project,
   ProjectSettings,
@@ -74,6 +75,7 @@ function createEmptyProject(name: string, settings?: Partial<ProjectSettings>): 
 export class ProjectStore {
   private project: Project;
   private filePath: string | null = null;
+  private executor = new ActionExecutor();
 
   constructor() {
     this.project = createEmptyProject("Untitled Project");
@@ -354,63 +356,29 @@ export class ProjectStore {
     });
   }
 
-  splitClip(clipId: string, time: number): Clip {
-    let secondClip!: Clip;
-    this.project = produce(this.project, (draft) => {
-      for (const track of draft.timeline.tracks) {
-        const idx = track.clips.findIndex((c) => c.id === clipId);
-        if (idx !== -1) {
-          const original = track.clips[idx];
-          const clipEnd = original.startTime + original.duration;
-          if (time <= original.startTime || time >= clipEnd) {
-            throw new Error("Split time is outside clip range");
-          }
-          const splitPoint = time - original.startTime;
-          const originalOutPoint = original.outPoint;
-          const originalDuration = original.duration;
-          original.duration = splitPoint;
-          original.outPoint = original.inPoint + splitPoint;
-          const nc: Clip = {
-            id: generateId(),
-            mediaId: original.mediaId,
-            trackId: original.trackId,
-            startTime: time,
-            duration: originalDuration - splitPoint,
-            inPoint: original.inPoint + splitPoint,
-            outPoint: originalOutPoint,
-            effects: original.effects.map((e) => ({ ...e, id: generateId() })),
-            audioEffects: original.audioEffects.map((e) => ({ ...e, id: generateId() })),
-            transform: { ...original.transform },
-            volume: original.volume,
-            keyframes: [],
-          };
-          track.clips.splice(idx + 1, 0, nc);
-          secondClip = nc;
-          draft.modifiedAt = Date.now();
-          return;
-        }
-      }
-      throw new Error(`Clip not found: ${clipId}`);
-    });
-    return secondClip;
+  async splitClip(clipId: string, time: number): Promise<Clip> {
+    const result = await this.executor.execute(
+      { id: generateId(), type: "clip/split", timestamp: Date.now(), params: { clipId, time } },
+      this.project,
+    );
+    if (!result.success) throw new Error(result.error?.message ?? "clip/split failed");
+    Object.assign(this.project, { modifiedAt: Date.now() });
+    const newClipId = this.executor.getLastAddedId("clip");
+    if (!newClipId) throw new Error("clip/split: new clip ID not tracked");
+    for (const track of this.project.timeline.tracks) {
+      const clip = track.clips.find((c) => c.id === newClipId);
+      if (clip) return clip;
+    }
+    throw new Error("clip/split: new clip not found in project");
   }
 
-  rippleDelete(clipId: string): void {
-    this.project = produce(this.project, (draft) => {
-      for (const track of draft.timeline.tracks) {
-        const idx = track.clips.findIndex((c) => c.id === clipId);
-        if (idx !== -1) {
-          const gap = track.clips[idx].duration;
-          track.clips.splice(idx, 1);
-          for (let i = idx; i < track.clips.length; i++) {
-            track.clips[i].startTime -= gap;
-          }
-          draft.modifiedAt = Date.now();
-          return;
-        }
-      }
-      throw new Error(`Clip not found: ${clipId}`);
-    });
+  async rippleDelete(clipId: string): Promise<void> {
+    const result = await this.executor.execute(
+      { id: generateId(), type: "clip/rippleDelete", timestamp: Date.now(), params: { clipId } },
+      this.project,
+    );
+    if (!result.success) throw new Error(result.error?.message ?? "clip/rippleDelete failed");
+    Object.assign(this.project, { modifiedAt: Date.now() });
   }
 
   // ── Effect mutations ─────────────────────────────────────────────────────
@@ -567,20 +535,15 @@ export class ProjectStore {
 
   // ── Transition mutations ─────────────────────────────────────────────────
 
-  addTransition(clipAId: string, clipBId: string, transitionType: TransitionType, duration: number): string {
-    const transitionId = generateId();
-    this.project = produce(this.project, (draft) => {
-      for (const track of draft.timeline.tracks) {
-        const clipA = track.clips.find((c) => c.id === clipAId);
-        const clipB = track.clips.find((c) => c.id === clipBId);
-        if (clipA && clipB) {
-          track.transitions.push({ id: transitionId, clipAId, clipBId, type: transitionType, duration, params: {} });
-          draft.modifiedAt = Date.now();
-          return;
-        }
-      }
-      throw new Error("Both clips must exist on the same track");
-    });
+  async addTransition(clipAId: string, clipBId: string, transitionType: TransitionType, duration: number): Promise<string> {
+    const result = await this.executor.execute(
+      { id: generateId(), type: "transition/add", timestamp: Date.now(), params: { clipAId, clipBId, transitionType, duration } },
+      this.project,
+    );
+    if (!result.success) throw new Error(result.error?.message ?? "transition/add failed");
+    Object.assign(this.project, { modifiedAt: Date.now() });
+    const transitionId = this.executor.getLastAddedId("transition");
+    if (!transitionId) throw new Error("transition/add: new transition ID not tracked");
     return transitionId;
   }
 
@@ -725,16 +688,15 @@ export class ProjectStore {
     });
   }
 
-  importSrt(srtContent: string): number {
-    const subtitles = parseSrt(srtContent);
-    this.project = produce(this.project, (draft) => {
-      for (const s of subtitles) {
-        draft.timeline.subtitles.push({ id: generateId(), ...s });
-      }
-      draft.timeline.subtitles.sort((a, b) => a.startTime - b.startTime);
-      draft.modifiedAt = Date.now();
-    });
-    return subtitles.length;
+  async importSrt(srtContent: string): Promise<number> {
+    const countBefore = this.project.timeline.subtitles.length;
+    const result = await this.executor.execute(
+      { id: generateId(), type: "subtitle/import", timestamp: Date.now(), params: { srtContent } },
+      this.project,
+    );
+    if (!result.success) throw new Error(result.error?.message ?? "subtitle/import failed");
+    Object.assign(this.project, { modifiedAt: Date.now() });
+    return this.project.timeline.subtitles.length - countBefore;
   }
 
   setSubtitleStyle(style: Subtitle["style"]): void {
@@ -890,36 +852,6 @@ export class ProjectStore {
 }
 
 // ── SRT parser ────────────────────────────────────────────────────────────────
-
-interface SrtEntry {
-  text: string;
-  startTime: number;
-  endTime: number;
-}
-
-function parseSrtTimestamp(ts: string): number {
-  const [hms, ms] = ts.trim().split(",");
-  const [h, m, s] = hms.split(":").map(Number);
-  return h * 3600 + m * 60 + s + parseInt(ms, 10) / 1000;
-}
-
-function parseSrt(content: string): SrtEntry[] {
-  const blocks = content.trim().split(/\n\s*\n/);
-  const entries: SrtEntry[] = [];
-  for (const block of blocks) {
-    const lines = block.trim().split("\n");
-    if (lines.length < 3) continue;
-    const timeLine = lines[1];
-    const match = timeLine.match(/(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})/);
-    if (!match) continue;
-    entries.push({
-      startTime: parseSrtTimestamp(match[1]),
-      endTime: parseSrtTimestamp(match[2]),
-      text: lines.slice(2).join("\n"),
-    });
-  }
-  return entries;
-}
 
 // Singleton instance used by all tool modules
 export const store = new ProjectStore();

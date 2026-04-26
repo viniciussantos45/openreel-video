@@ -118,7 +118,7 @@ export function registerSubtitleTools(server: McpServer): void {
         } else {
           throw new Error("Either srtContent or filePath must be provided");
         }
-        const count = store.importSrt(content);
+        const count = await store.importSrt(content);
         return { imported: count, message: `Imported ${count} subtitle entries` };
       }),
   );

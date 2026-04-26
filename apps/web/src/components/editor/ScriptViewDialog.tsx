@@ -140,12 +140,12 @@ export const ScriptViewDialog: React.FC<ScriptViewDialogProps> = ({
       e.preventDefault();
       setIsDragging(false);
       const file = e.dataTransfer.files[0];
-      if (file && file.type === "application/json") {
+      if (file && (file.type === "application/json" || file.name.endsWith(".oreel"))) {
         handleFileUpload(file);
       } else if (file) {
         setValidation({
           valid: false,
-          errors: ["Please upload a .json file"],
+          errors: ["Please upload a .json or .oreel file"],
           warnings: [],
         });
       }
@@ -305,7 +305,7 @@ export const ScriptViewDialog: React.FC<ScriptViewDialogProps> = ({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".json,application/json"
+                accept=".json,.oreel,application/json"
                 onChange={handleFileInputChange}
                 className="hidden"
               />
