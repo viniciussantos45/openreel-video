@@ -1,6 +1,6 @@
 /**
  * In-memory project store for the OpenReel MCP server.
- * Loads/saves projects as JSON files (.oreel).
+ * Loads/saves projects as JSON files (.openreel).
  */
 
 import { readFile, writeFile } from "node:fs/promises";

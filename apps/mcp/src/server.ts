@@ -6,8 +6,8 @@
  * Compatible with Claude Code, Cursor, VS Code Copilot, and Codex.
  *
  * Usage:
- *   npx tsx src/server.ts [--project /path/to/file.oreel]
- *   node dist/server.js [--project /path/to/file.oreel]
+ *   npx tsx src/server.ts [--project /path/to/file.openreel]
+ *   node dist/server.js [--project /path/to/file.openreel]
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
