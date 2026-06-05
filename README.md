@@ -89,6 +89,71 @@ OpenReel Video is a fully-featured browser-based video editor that runs entirely
 
 ---
 
+## AI Integration (MCP Server)
+
+OpenReel includes a [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that exposes all editing capabilities to AI assistants like **Claude Code**, **Cursor**, **VS Code Copilot**, and **Codex**.
+
+### What the MCP server provides
+
+75 tools across 16 categories — project management, media library, timeline, tracks, clips, video effects, transforms, keyframes, transitions, audio mixing, subtitles, text clips, graphics, markers, export validation, and templates.
+
+The server works against serialized `.openreel` project files using an in-memory store. It does not need a browser, WebGPU, or WebCodecs. Actual rendering/export is performed by the web app.
+
+### Quick setup
+
+```bash
+# Run the MCP server (dev mode)
+pnpm mcp
+
+# Or, load a specific project file
+cd apps/mcp
+npx tsx src/server.ts --project /path/to/project.openreel
+```
+
+### Claude Code configuration
+
+Add to your `~/.claude.json` or project `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "openreel": {
+      "command": "npx",
+      "args": ["tsx", "/path/to/openreel-video/apps/mcp/src/server.ts"],
+      "env": {}
+    }
+  }
+}
+```
+
+### Cursor / VS Code Copilot configuration
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "openreel": {
+        "command": "npx",
+        "args": ["tsx", "/path/to/openreel-video/apps/mcp/src/server.ts"]
+      }
+    }
+  }
+}
+```
+
+### Example prompts
+
+Once connected, you can ask your AI assistant things like:
+
+- *"Create a new 1080p project called 'My Vlog'"*
+- *"List all the tracks in the current timeline"*
+- *"Add a blur effect with radius 15 to clip abc123"*
+- *"Import subtitles from /tmp/captions.srt"*
+- *"Validate these export settings: 4K H.265 at 50Mbps"*
+- *"What text animation presets are available?"*
+
+---
+
 ## Quick Start
 
 ### Try Online
@@ -150,6 +215,15 @@ openreel/
 │       ├── stores/        # Zustand state management
 │       ├── services/      # Auto-save, shortcuts, screen recording
 │       └── bridges/       # Engine coordination
+│
+├── apps/mcp/              # MCP server for AI integrations
+│   └── src/
+│       ├── server.ts      # Entry point (stdio transport)
+│       ├── project-store.ts  # In-memory project state
+│       ├── types.ts       # Type definitions
+│       ├── constants.ts   # Effect/transition/export constants
+│       ├── tools/         # 75 MCP tools across 16 categories
+│       └── utils/         # Response helpers
 │
 └── packages/core/         # Core engines (~59k lines)
     └── src/

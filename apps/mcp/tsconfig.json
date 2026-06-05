@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "outDir": "./dist",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "declaration": true,
+    "sourceMap": true,
+    "paths": {
+      "@openreel/core": ["../../packages/core/src/index.ts"],
+      "@openreel/core/*": ["../../packages/core/src/*"]
+    }
+  },
+  "include": ["src/**/*", "../../packages/core/src/video/webgpu-types.d.ts"],
+  "exclude": ["node_modules", "dist"]
+}

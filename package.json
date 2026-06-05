@@ -16,7 +16,8 @@
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "clean": "pnpm -r clean",
-    "claude:help": "cat scripts/claude-review.md",
+    "mcp": "pnpm --filter @openreel/mcp dev",
+    "mcp:build": "pnpm --filter @openreel/mcp build",
     "issues": "gh issue list --label needs-claude-review",
     "prs": "gh pr list --label needs-claude-review"
   },
