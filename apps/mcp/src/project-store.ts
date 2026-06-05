@@ -3,22 +3,22 @@
  * Loads/saves projects as JSON files (.openreel).
  */
 
+import { ActionExecutor } from "@openreel/core/node";
+import { produce } from "immer";
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
-import { produce } from "immer";
-import { ActionExecutor } from "@openreel/core/node";
 import type {
+  AutomationPoint,
+  Clip,
+  EasingType,
   Project,
   ProjectSettings,
-  Track,
-  Clip,
+  ShapeClip,
   Subtitle,
   TextClip,
-  ShapeClip,
+  Track,
   Transform,
-  AutomationPoint,
   TransitionType,
-  EasingType,
 } from "./types.js";
 
 const SCHEMA_VERSION = "1.0.0";
@@ -42,7 +42,10 @@ function createDefaultTransform(): Transform {
   };
 }
 
-function createEmptyProject(name: string, settings?: Partial<ProjectSettings>): Project {
+function createEmptyProject(
+  name: string,
+  settings?: Partial<ProjectSettings>,
+): Project {
   const defaults: ProjectSettings = {
     width: 1920,
     height: 1080,
@@ -92,7 +95,8 @@ export class ProjectStore {
 
   async saveToFile(filePath?: string): Promise<string> {
     const target = filePath ?? this.filePath;
-    if (!target) throw new Error("No file path specified and no previously loaded path");
+    if (!target)
+      throw new Error("No file path specified and no previously loaded path");
     const file: ProjectFile = {
       version: SCHEMA_VERSION,
       project: produce(this.project, (draft) => {
@@ -140,7 +144,11 @@ export class ProjectStore {
 
   // ── Media mutations ──────────────────────────────────────────────────────
 
-  addMediaPlaceholder(filePath: string, name: string, type: "video" | "audio" | "image"): Project {
+  addMediaPlaceholder(
+    filePath: string,
+    name: string,
+    type: "video" | "audio" | "image",
+  ): Project {
     const fileName = name || basename(filePath);
     this.project = produce(this.project, (draft) => {
       draft.mediaLibrary.items.push({
@@ -210,7 +218,11 @@ export class ProjectStore {
         muted: false,
         solo: false,
       };
-      if (position !== undefined && position >= 0 && position <= draft.timeline.tracks.length) {
+      if (
+        position !== undefined &&
+        position >= 0 &&
+        position <= draft.timeline.tracks.length
+      ) {
         draft.timeline.tracks.splice(position, 0, track);
       } else {
         draft.timeline.tracks.push(track);
@@ -225,7 +237,26 @@ export class ProjectStore {
     this.project = produce(this.project, (draft) => {
       const idx = draft.timeline.tracks.findIndex((t) => t.id === trackId);
       if (idx === -1) throw new Error(`Track not found: ${trackId}`);
+      const removedTrack = draft.timeline.tracks[idx];
+      // Collect mediaIds referenced by clips on this track so we can remove their virtual data
+      const virtualIds = new Set(
+        removedTrack.clips.map((c) => c.mediaId).filter(Boolean) as string[],
+      );
       draft.timeline.tracks.splice(idx, 1);
+      // Clean up orphaned virtual clip data for all clips in the removed track
+      for (const arr of [
+        "textClips",
+        "shapeClips",
+        "svgClips",
+        "stickerClips",
+      ] as const) {
+        const list = draft[arr] as Array<{ id: string }> | undefined;
+        if (!list) continue;
+        // Filter in-place (iterate backwards to avoid index shifting)
+        for (let i = list.length - 1; i >= 0; i--) {
+          if (virtualIds.has(list[i].id)) list.splice(i, 1);
+        }
+      }
       draft.modifiedAt = Date.now();
     });
   }
@@ -249,7 +280,10 @@ export class ProjectStore {
     });
   }
 
-  setTrackVisibility(trackId: string, opts: { hidden?: boolean; muted?: boolean; solo?: boolean }): void {
+  setTrackVisibility(
+    trackId: string,
+    opts: { hidden?: boolean; muted?: boolean; solo?: boolean },
+  ): void {
     this.project = produce(this.project, (draft) => {
       const track = draft.timeline.tracks.find((t) => t.id === trackId);
       if (!track) throw new Error(`Track not found: ${trackId}`);
@@ -300,7 +334,25 @@ export class ProjectStore {
       for (const track of draft.timeline.tracks) {
         const idx = track.clips.findIndex((c) => c.id === clipId);
         if (idx !== -1) {
+          const mediaId = track.clips[idx].mediaId;
           track.clips.splice(idx, 1);
+          // Clean up orphaned virtual clip data if this clip referenced one
+          if (mediaId) {
+            for (const arr of [
+              "textClips",
+              "shapeClips",
+              "svgClips",
+              "stickerClips",
+            ] as const) {
+              const list = draft[arr] as Array<{ id: string }> | undefined;
+              if (!list) continue;
+              const vi = list.findIndex((v) => v.id === mediaId);
+              if (vi !== -1) {
+                list.splice(vi, 1);
+                break;
+              }
+            }
+          }
           draft.modifiedAt = Date.now();
           return;
         }
@@ -322,15 +374,39 @@ export class ProjectStore {
         }
       }
       if (sourceIdx === -1) throw new Error(`Clip not found: ${clipId}`);
-      const sourceTrack = draft.timeline.tracks.find((t) => t.id === sourceTrackId)!;
+      const sourceTrack = draft.timeline.tracks.find(
+        (t) => t.id === sourceTrackId,
+      )!;
       if (targetTrackId && targetTrackId !== sourceTrackId) {
-        const targetTrack = draft.timeline.tracks.find((t) => t.id === targetTrackId);
-        if (!targetTrack) throw new Error(`Target track not found: ${targetTrackId}`);
+        const targetTrack = draft.timeline.tracks.find(
+          (t) => t.id === targetTrackId,
+        );
+        if (!targetTrack)
+          throw new Error(`Target track not found: ${targetTrackId}`);
         const [clip] = sourceTrack.clips.splice(sourceIdx, 1);
         clip.startTime = startTime;
         clip.trackId = targetTrackId;
         targetTrack.clips.push(clip);
         targetTrack.clips.sort((a, b) => a.startTime - b.startTime);
+        // Sync trackId on the virtual clip data if this clip references one
+        if (clip.mediaId) {
+          for (const arr of [
+            "textClips",
+            "shapeClips",
+            "svgClips",
+            "stickerClips",
+          ] as const) {
+            const list = draft[arr] as
+              | Array<{ id: string; trackId: string }>
+              | undefined;
+            if (!list) continue;
+            const vc = list.find((v) => v.id === clip.mediaId);
+            if (vc) {
+              vc.trackId = targetTrackId;
+              break;
+            }
+          }
+        }
       } else {
         sourceTrack.clips[sourceIdx].startTime = startTime;
       }
@@ -358,10 +434,16 @@ export class ProjectStore {
 
   async splitClip(clipId: string, time: number): Promise<Clip> {
     const result = await this.executor.execute(
-      { id: generateId(), type: "clip/split", timestamp: Date.now(), params: { clipId, time } },
+      {
+        id: generateId(),
+        type: "clip/split",
+        timestamp: Date.now(),
+        params: { clipId, time },
+      },
       this.project,
     );
-    if (!result.success) throw new Error(result.error?.message ?? "clip/split failed");
+    if (!result.success)
+      throw new Error(result.error?.message ?? "clip/split failed");
     Object.assign(this.project, { modifiedAt: Date.now() });
     const newClipId = this.executor.getLastAddedId("clip");
     if (!newClipId) throw new Error("clip/split: new clip ID not tracked");
@@ -374,22 +456,37 @@ export class ProjectStore {
 
   async rippleDelete(clipId: string): Promise<void> {
     const result = await this.executor.execute(
-      { id: generateId(), type: "clip/rippleDelete", timestamp: Date.now(), params: { clipId } },
+      {
+        id: generateId(),
+        type: "clip/rippleDelete",
+        timestamp: Date.now(),
+        params: { clipId },
+      },
       this.project,
     );
-    if (!result.success) throw new Error(result.error?.message ?? "clip/rippleDelete failed");
+    if (!result.success)
+      throw new Error(result.error?.message ?? "clip/rippleDelete failed");
     Object.assign(this.project, { modifiedAt: Date.now() });
   }
 
   // ── Effect mutations ─────────────────────────────────────────────────────
 
-  addEffect(clipId: string, effectType: string, params?: Record<string, unknown>): string {
+  addEffect(
+    clipId: string,
+    effectType: string,
+    params?: Record<string, unknown>,
+  ): string {
     const effectId = generateId();
     this.project = produce(this.project, (draft) => {
       for (const track of draft.timeline.tracks) {
         const clip = track.clips.find((c) => c.id === clipId);
         if (clip) {
-          clip.effects.push({ id: effectId, type: effectType, params: params ?? {}, enabled: true });
+          clip.effects.push({
+            id: effectId,
+            type: effectType,
+            params: params ?? {},
+            enabled: true,
+          });
           draft.modifiedAt = Date.now();
           return;
         }
@@ -415,7 +512,11 @@ export class ProjectStore {
     });
   }
 
-  updateEffect(clipId: string, effectId: string, params: Record<string, unknown>): void {
+  updateEffect(
+    clipId: string,
+    effectId: string,
+    params: Record<string, unknown>,
+  ): void {
     this.project = produce(this.project, (draft) => {
       for (const track of draft.timeline.tracks) {
         const clip = track.clips.find((c) => c.id === clipId);
@@ -483,14 +584,31 @@ export class ProjectStore {
 
   // ── Keyframe mutations ───────────────────────────────────────────────────
 
-  addKeyframe(clipId: string, property: string, time: number, value: unknown, easing: EasingType = "linear"): void {
+  addKeyframe(
+    clipId: string,
+    property: string,
+    time: number,
+    value: unknown,
+    easing: EasingType = "linear",
+  ): void {
     this.project = produce(this.project, (draft) => {
       for (const track of draft.timeline.tracks) {
         const clip = track.clips.find((c) => c.id === clipId);
         if (clip) {
-          const existing = clip.keyframes.findIndex((k) => k.property === property && k.time === time);
-          if (existing !== -1) throw new Error("Keyframe already exists at this time for this property");
-          clip.keyframes.push({ id: generateId(), time, property, value, easing });
+          const existing = clip.keyframes.findIndex(
+            (k) => k.property === property && k.time === time,
+          );
+          if (existing !== -1)
+            throw new Error(
+              "Keyframe already exists at this time for this property",
+            );
+          clip.keyframes.push({
+            id: generateId(),
+            time,
+            property,
+            value,
+            easing,
+          });
           clip.keyframes.sort((a, b) => a.time - b.time);
           draft.modifiedAt = Date.now();
           return;
@@ -505,7 +623,9 @@ export class ProjectStore {
       for (const track of draft.timeline.tracks) {
         const clip = track.clips.find((c) => c.id === clipId);
         if (clip) {
-          const idx = clip.keyframes.findIndex((k) => k.property === property && k.time === time);
+          const idx = clip.keyframes.findIndex(
+            (k) => k.property === property && k.time === time,
+          );
           if (idx === -1) throw new Error("Keyframe not found");
           clip.keyframes.splice(idx, 1);
           draft.modifiedAt = Date.now();
@@ -516,12 +636,20 @@ export class ProjectStore {
     });
   }
 
-  updateKeyframe(clipId: string, property: string, time: number, value?: unknown, easing?: EasingType): void {
+  updateKeyframe(
+    clipId: string,
+    property: string,
+    time: number,
+    value?: unknown,
+    easing?: EasingType,
+  ): void {
     this.project = produce(this.project, (draft) => {
       for (const track of draft.timeline.tracks) {
         const clip = track.clips.find((c) => c.id === clipId);
         if (clip) {
-          const kf = clip.keyframes.find((k) => k.property === property && k.time === time);
+          const kf = clip.keyframes.find(
+            (k) => k.property === property && k.time === time,
+          );
           if (!kf) throw new Error("Keyframe not found");
           if (value !== undefined) kf.value = value;
           if (easing !== undefined) kf.easing = easing;
@@ -535,15 +663,27 @@ export class ProjectStore {
 
   // ── Transition mutations ─────────────────────────────────────────────────
 
-  async addTransition(clipAId: string, clipBId: string, transitionType: TransitionType, duration: number): Promise<string> {
+  async addTransition(
+    clipAId: string,
+    clipBId: string,
+    transitionType: TransitionType,
+    duration: number,
+  ): Promise<string> {
     const result = await this.executor.execute(
-      { id: generateId(), type: "transition/add", timestamp: Date.now(), params: { clipAId, clipBId, transitionType, duration } },
+      {
+        id: generateId(),
+        type: "transition/add",
+        timestamp: Date.now(),
+        params: { clipAId, clipBId, transitionType, duration },
+      },
       this.project,
     );
-    if (!result.success) throw new Error(result.error?.message ?? "transition/add failed");
+    if (!result.success)
+      throw new Error(result.error?.message ?? "transition/add failed");
     Object.assign(this.project, { modifiedAt: Date.now() });
     const transitionId = this.executor.getLastAddedId("transition");
-    if (!transitionId) throw new Error("transition/add: new transition ID not tracked");
+    if (!transitionId)
+      throw new Error("transition/add: new transition ID not tracked");
     return transitionId;
   }
 
@@ -561,7 +701,11 @@ export class ProjectStore {
     });
   }
 
-  updateTransition(transitionId: string, duration?: number, params?: Record<string, unknown>): void {
+  updateTransition(
+    transitionId: string,
+    duration?: number,
+    params?: Record<string, unknown>,
+  ): void {
     this.project = produce(this.project, (draft) => {
       for (const track of draft.timeline.tracks) {
         const transition = track.transitions.find((t) => t.id === transitionId);
@@ -624,13 +768,22 @@ export class ProjectStore {
     });
   }
 
-  addAudioEffect(clipId: string, effectType: string, params?: Record<string, unknown>): string {
+  addAudioEffect(
+    clipId: string,
+    effectType: string,
+    params?: Record<string, unknown>,
+  ): string {
     const effectId = generateId();
     this.project = produce(this.project, (draft) => {
       for (const track of draft.timeline.tracks) {
         const clip = track.clips.find((c) => c.id === clipId);
         if (clip) {
-          clip.audioEffects.push({ id: effectId, type: effectType, params: params ?? {}, enabled: true });
+          clip.audioEffects.push({
+            id: effectId,
+            type: effectType,
+            params: params ?? {},
+            enabled: true,
+          });
           draft.modifiedAt = Date.now();
           return;
         }
@@ -640,7 +793,11 @@ export class ProjectStore {
     return effectId;
   }
 
-  updateAudioEffect(clipId: string, effectId: string, params: Record<string, unknown>): void {
+  updateAudioEffect(
+    clipId: string,
+    effectId: string,
+    params: Record<string, unknown>,
+  ): void {
     this.project = produce(this.project, (draft) => {
       for (const track of draft.timeline.tracks) {
         const clip = track.clips.find((c) => c.id === clipId);
@@ -661,14 +818,24 @@ export class ProjectStore {
   addSubtitle(text: string, startTime: number, endTime: number): string {
     const subtitleId = generateId();
     this.project = produce(this.project, (draft) => {
-      draft.timeline.subtitles.push({ id: subtitleId, text, startTime, endTime });
+      draft.timeline.subtitles.push({
+        id: subtitleId,
+        text,
+        startTime,
+        endTime,
+      });
       draft.timeline.subtitles.sort((a, b) => a.startTime - b.startTime);
       draft.modifiedAt = Date.now();
     });
     return subtitleId;
   }
 
-  updateSubtitle(subtitleId: string, text?: string, startTime?: number, endTime?: number): void {
+  updateSubtitle(
+    subtitleId: string,
+    text?: string,
+    startTime?: number,
+    endTime?: number,
+  ): void {
     this.project = produce(this.project, (draft) => {
       const sub = draft.timeline.subtitles.find((s) => s.id === subtitleId);
       if (!sub) throw new Error(`Subtitle not found: ${subtitleId}`);
@@ -681,7 +848,9 @@ export class ProjectStore {
 
   removeSubtitle(subtitleId: string): void {
     this.project = produce(this.project, (draft) => {
-      const idx = draft.timeline.subtitles.findIndex((s) => s.id === subtitleId);
+      const idx = draft.timeline.subtitles.findIndex(
+        (s) => s.id === subtitleId,
+      );
       if (idx === -1) throw new Error(`Subtitle not found: ${subtitleId}`);
       draft.timeline.subtitles.splice(idx, 1);
       draft.modifiedAt = Date.now();
@@ -691,10 +860,16 @@ export class ProjectStore {
   async importSrt(srtContent: string): Promise<number> {
     const countBefore = this.project.timeline.subtitles.length;
     const result = await this.executor.execute(
-      { id: generateId(), type: "subtitle/import", timestamp: Date.now(), params: { srtContent } },
+      {
+        id: generateId(),
+        type: "subtitle/import",
+        timestamp: Date.now(),
+        params: { srtContent },
+      },
       this.project,
     );
-    if (!result.success) throw new Error(result.error?.message ?? "subtitle/import failed");
+    if (!result.success)
+      throw new Error(result.error?.message ?? "subtitle/import failed");
     Object.assign(this.project, { modifiedAt: Date.now() });
     return this.project.timeline.subtitles.length - countBefore;
   }
@@ -742,7 +917,8 @@ export class ProjectStore {
     this.project = produce(this.project, (draft) => {
       const track = draft.timeline.tracks.find((t) => t.id === trackId);
       if (!track) throw new Error(`Track not found: ${trackId}`);
-      if (track.type !== "text") throw new Error("Track must be of type 'text'");
+      if (track.type !== "text")
+        throw new Error("Track must be of type 'text'");
       const defaultStyle: TextClip["style"] = {
         fontFamily: "Arial",
         fontSize: 48,
@@ -767,7 +943,7 @@ export class ProjectStore {
       };
       if (!draft.textClips) draft.textClips = [];
       draft.textClips.push(textClip);
-      // Add a corresponding clip reference in the track
+      // Add a corresponding clip reference in the track (separate transform copy)
       track.clips.push({
         id: generateId(),
         mediaId: clipId,
@@ -778,7 +954,7 @@ export class ProjectStore {
         outPoint: duration,
         effects: [],
         audioEffects: [],
-        transform,
+        transform: createDefaultTransform(),
         volume: 1,
         keyframes: [],
       });
@@ -787,7 +963,11 @@ export class ProjectStore {
     return clipId;
   }
 
-  updateTextClip(clipId: string, text?: string, style?: Partial<TextClip["style"]>): void {
+  updateTextClip(
+    clipId: string,
+    text?: string,
+    style?: Partial<TextClip["style"]>,
+  ): void {
     this.project = produce(this.project, (draft) => {
       const tc = (draft.textClips ?? []).find((t) => t.id === clipId);
       if (!tc) throw new Error(`Text clip not found: ${clipId}`);
@@ -810,7 +990,8 @@ export class ProjectStore {
     this.project = produce(this.project, (draft) => {
       const track = draft.timeline.tracks.find((t) => t.id === trackId);
       if (!track) throw new Error(`Track not found: ${trackId}`);
-      if (track.type !== "graphics") throw new Error("Track must be of type 'graphics'");
+      if (track.type !== "graphics")
+        throw new Error("Track must be of type 'graphics'");
       const defaultStyle: ShapeClip["style"] = {
         fill: { type: "solid", color: "#3b82f6", opacity: 1 },
         stroke: { color: "#1d4ed8", width: 2, opacity: 1 },
@@ -831,6 +1012,7 @@ export class ProjectStore {
       };
       if (!draft.shapeClips) draft.shapeClips = [];
       draft.shapeClips.push(shapeClip);
+      // Add a corresponding clip reference in the track (separate transform copy)
       track.clips.push({
         id: generateId(),
         mediaId: clipId,
@@ -841,7 +1023,7 @@ export class ProjectStore {
         outPoint: duration,
         effects: [],
         audioEffects: [],
-        transform,
+        transform: createDefaultTransform(),
         volume: 1,
         keyframes: [],
       });

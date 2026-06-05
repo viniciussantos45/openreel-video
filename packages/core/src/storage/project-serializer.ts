@@ -1,6 +1,6 @@
-import type { Project, MediaItem } from "../types";
+import type { MediaItem, Project } from "../types";
+import type { ProjectFileWithMetadata, ValidationResult } from "./schema-types";
 import type { IStorageEngine, MediaRecord } from "./types";
-import type { ValidationResult, ProjectFileWithMetadata } from "./schema-types";
 
 export interface ProjectFile {
   readonly version: string;
@@ -143,6 +143,21 @@ export class ProjectSerializer {
       const mediaIds = new Set(
         project.mediaLibrary.items.map((item: MediaItem) => item.id),
       );
+
+      // Virtual clip data is stored in top-level arrays (textClips, shapeClips,
+      // svgClips, stickerClips) and referenced by UUID — include those IDs as valid.
+      for (const arr of [
+        project.textClips,
+        project.shapeClips,
+        project.svgClips,
+        project.stickerClips,
+      ]) {
+        if (Array.isArray(arr)) {
+          for (const item of arr) {
+            if (item?.id) mediaIds.add(item.id);
+          }
+        }
+      }
 
       for (const item of project.mediaLibrary.items) {
         if (!item.blob && !item.thumbnailUrl) {
